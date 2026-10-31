@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { mountRemixShell } from "../src/ui/app.js";
 import type { RemixController } from "../src/state/controller.js";
+import skyWgsl from "../src/ui/shaders/launcher_sky.wgsl?raw";
 
 function q<T extends Element = HTMLElement>(root: ParentNode, selector: string): T {
   const el = root.querySelector<T>(selector);
@@ -48,6 +49,21 @@ describe("ui ergonomics: layout and defaults", () => {
     }
     expect(text).not.toContain("Crossfader (pmy)");
     expect(text).not.toContain("Bipolar SVF");
+  });
+});
+
+describe("moonforge sky: background canvas", () => {
+  it("degrades to no canvas when navigator.gpu is absent", async () => {
+    expect((navigator as unknown as { gpu?: unknown }).gpu).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.querySelector('canvas[data-moonforge-sky="true"]')).toBeNull();
+    expect(root.style.zIndex).toBe("");
+    expect(root.querySelectorAll("[data-zone]")).toHaveLength(4);
+  });
+
+  it("ships the launcher_sky moon with its mask restored", () => {
+    expect(skyWgsl).toContain("let moon_mask = 1.0 - smoothstep(");
+    expect(skyWgsl).not.toContain("0.0 * (1.0 - smoothstep");
   });
 });
 

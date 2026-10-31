@@ -15,6 +15,7 @@ import {
 import { encodeDeckDeltaHex } from "../nostr/sync.js";
 import { BLACK_FLOOR_HEX, RemixController } from "../state/controller.js";
 import { decodeMixFragment, encodeMixFragment } from "../state/share.js";
+import { mountMoonforgeSky, type SkyMeters } from "./moonforge-sky.js";
 
 const FADER_STEP = 100;
 
@@ -68,6 +69,8 @@ export function mountRemixShell(root: HTMLElement): {
   const hashPresent = (globalThis.location?.hash ?? "").length > 1;
   const controller = new RemixController(incoming ?? undefined);
   const bridge = new RemixAudioBridge();
+  const skyMeters: SkyMeters = { rms: 0, high: 0 };
+  void mountMoonforgeSky(root, controller, skyMeters).catch(() => undefined);
   let seqCounter = 1;
 
   const drawerLabel = (open: boolean) => (open ? "Less" : "+ More Controls");
@@ -994,6 +997,9 @@ export function mountRemixShell(root: HTMLElement): {
     window.addEventListener("resize", fitCanvas);
     bridge.onTelemetry((rms, spectrum) => {
       fitCanvas();
+      skyMeters.rms = rms;
+      const top = spectrum.slice(Math.max(0, spectrum.length - 16));
+      skyMeters.high = top.length ? top.reduce((a, b) => a + b, 0) / top.length : 0;
       if (rmsReadout) rmsReadout.textContent = `RMS ${rms.toFixed(3)}`;
       if (rmsFill) {
         const pctH = Math.max(0, Math.min(100, rms * 100));

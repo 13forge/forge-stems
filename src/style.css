@@ -167,6 +167,7 @@ html, body {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+  align-items: start;
 }
 
 [data-tier2="fx-body"] {
@@ -211,6 +212,74 @@ input[type="range"][data-slider]::-webkit-slider-thumb {
   background: var(--text-moonlight);
   border: 2px solid var(--accent-moon-cyan);
   box-shadow: 0 0 10px rgba(26, 224, 255, 0.55);
+}
+
+/* Skip link: app.ts emits a.skip. Off-screen until keyboard :focus-visible. */
+a.skip {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  z-index: 9999;
+  padding: 8px 14px;
+  color: var(--text-moonlight);
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+a.skip:focus-visible {
+  top: 12px;
+  left: 12px;
+  background: #101524;
+  color: #E6F1FF;
+  border: 1px solid #1AE0FF;
+  border-radius: 6px;
+  outline: 2px solid #1AE0FF;
+  outline-offset: 2px;
+}
+
+/*
+ * Native file inputs (stem strips and the Vocal Studio reference picker).
+ * Visually hidden; .stem-drop and #btn-ref still open them.
+ * The focus ring moves onto those triggers.
+ */
+#app input[type="file"] {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  background: var(--bg-crypt-drawer) !important;
+  color: var(--text-moonlight) !important;
+}
+
+.stem-drop:focus-visible,
+#btn-ref:focus-visible,
+.stem-drop:has(+ input[type="file"]:focus-visible),
+#btn-ref:has(+ input[type="file"]:focus-visible) {
+  outline: 2px solid var(--accent-moon-cyan);
+  outline-offset: 2px;
+}
+
+/* Text, number, and select controls. #app is the mount in index.html. Range, file, and checkbox stay custom. */
+#app input:not([type="file"]):not([type="range"]):not([type="checkbox"]),
+#app select {
+  background: #070910;
+  color: #E6F1FF;
+  border: 1px solid #1E293B;
+  border-radius: 6px;
+  padding: 4px 8px;
+  color-scheme: dark;
+}
+
+#app input:not([type="file"]):not([type="range"]):not([type="checkbox"]):focus-visible,
+#app select:focus-visible {
+  outline: 2px solid #1AE0FF;
+  outline-offset: 2px;
 }
 
 button {

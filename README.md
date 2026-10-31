@@ -27,10 +27,11 @@ The mixer engine is the WebAssembly package in `vendor/forge-audio-wasm-v3/` (th
 ## Provenance
 
 - Front-end source commit: `687695a2`
-- wasm-pack 0.13.1
+- Audio engine commit: `ae41c5a8` (Moonforge sky `0e517012`, `read_telemetry_into` `1dede48b`, stem-split DSP `8300cd44`, `c4b5ba36`, and `ae41c5a8`)
+- wasm-pack 0.13.1 (`--target web`, panic=abort, debug info off)
 - wasm-bindgen 0.2.127
-- wasm-opt 117
-- `vendor/forge-audio-wasm-v3/forge_audio_wasm_v3_bg.wasm`: 624752 bytes
-- sha256: `54b3ce03a4d3726a2b8f06de84a177519bce9fc97452a649d596f6de937e2778`
+- wasm-opt 117 (`--dce --remove-unused-module-elements --strip-debug --strip-producers`)
+- `vendor/forge-audio-wasm-v3/forge_audio_wasm_v3_bg.wasm`: 620,487 bytes
+- sha256: `ac7052d2f0e5a22f0a96760a200e7618634609473b64aa22b873c4399a91c6f1`
 
-Build-time path remapping was applied so panic locations in the `.wasm` do not carry absolute machine paths.
+Release build of the vendored audio module. Symbols are stripped, and unused C exports that the JS glue does not call were removed (eight support-crate symbols plus the abort and instance-terminated handlers). The glue exposes `Engine.read_telemetry_into`, and `InitOutput` matches the exports that remain. Build-time path remapping, plus equal-length rewrites of any panic paths that survived it, keeps machine paths and toolchain locations out of the `.wasm`. The Moonforge sky shader is in this repo at `src/ui/shaders/launcher_sky.wgsl`. `src/ui/moonforge-sky.ts` mounts it behind `#app` when `navigator.gpu` can create a device, and stays inert otherwise. `vite.config.ts` keeps the `@wasm` alias on `vendor/forge-audio-wasm-v3` and does not allow the dev server to read a parent directory.

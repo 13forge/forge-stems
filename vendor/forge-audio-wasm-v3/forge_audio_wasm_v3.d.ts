@@ -39,6 +39,13 @@ export class Engine {
      */
     nudge_deck(deck: number, rate_offset_pmy: number): void;
     /**
+     * Zero-alloc telemetry readback into a caller-supplied slice of at least 8 `u32`:
+     * `[0..4]` playhead frames for decks A..D, `[4]` sub (<100 Hz) pmy, `[5]` mid (100 Hz..4 kHz) pmy,
+     * `[6]` high (>4 kHz) pmy, `[7]` master RMS pmy. Every energy value is `0..=10_000`.
+     * Float-to-permyriad conversion happens here, at the boundary; the mixer stays f32.
+     */
+    read_telemetry_into(out: Uint32Array): void;
+    /**
      * Renders `frames` stereo frames from `Mixer::mix_block` and returns a `Float32Array`.
      */
     render_block(frames: number): Float32Array;
@@ -171,6 +178,7 @@ export interface InitOutput {
     readonly engine_master_rms: (a: number) => number;
     readonly engine_new: (a: number, b: number, c: number) => void;
     readonly engine_nudge_deck: (a: number, b: number, c: number, d: number) => void;
+    readonly engine_read_telemetry_into: (a: number, b: number, c: number, d: number) => void;
     readonly engine_render_block: (a: number, b: number) => number;
     readonly engine_render_block_into: (a: number, b: number, c: number, d: number) => void;
     readonly engine_set_crossfader: (a: number, b: number, c: number) => void;
