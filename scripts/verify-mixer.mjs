@@ -134,6 +134,8 @@ try {
   await page.setViewport({ width: 1280, height: 900 });
   await page.goto(baseUrl, { waitUntil: "networkidle0" });
   await page.waitForSelector("article.song-card[data-song-card='3']");
+  shots.push(resolve(shotDir, "empty-123-1280.png"));
+  await page.screenshot({ path: shots[0], fullPage: true });
 
   const loadTone = async (deck, stem, freq) => {
     const before = await page.$eval("#status-msg", (el) => el.textContent);
@@ -191,13 +193,13 @@ try {
     () => document.querySelector("article.song-card[data-song-card='2']")?.hidden === false,
   );
 
-  await page.focus('.deck-volume[data-deck="2"]');
-  const volumeBefore = Number(await page.$eval('.deck-volume[data-deck="2"]', (el) => el.value));
+  await page.focus('.stem-fader[data-deck="2"][data-stem="0"]');
+  const volumeBefore = Number(await page.$eval('.stem-fader[data-deck="2"][data-stem="0"]', (el) => el.value));
   await page.keyboard.press("ArrowLeft");
-  const volumeAfter = Number(await page.$eval('.deck-volume[data-deck="2"]', (el) => el.value));
+  const volumeAfter = Number(await page.$eval('.stem-fader[data-deck="2"][data-stem="0"]', (el) => el.value));
   if (!(volumeAfter < volumeBefore)) throw new Error(`keyboard did not lower deck C (${volumeBefore} -> ${volumeAfter})`);
   const focused = await page.evaluate(() => document.activeElement?.className ?? "");
-  if (!focused.includes("deck-volume")) throw new Error(`focus left the fader (${focused})`);
+  if (!focused.includes("stem-fader")) throw new Error(`focus left the fader (${focused})`);
 
   await page.click("#btn-share");
   await page.waitForFunction(() => location.hash.startsWith("#m1."));
@@ -219,11 +221,11 @@ try {
     .catch(() => page.$eval("#rms-readout", (el) => el.textContent));
 
   shots.push(resolve(shotDir, "stem-mixer-1280.png"));
-  await page.screenshot({ path: shots[0], fullPage: true });
+  await page.screenshot({ path: shots.at(-1), fullPage: true });
 
   await page.setViewport({ width: 1024, height: 800 });
   shots.push(resolve(shotDir, "stem-mixer-1024.png"));
-  await page.screenshot({ path: shots[1], fullPage: true });
+  await page.screenshot({ path: shots.at(-1), fullPage: true });
   await page.setViewport({ width: 1280, height: 900 });
 
   await page.click("#btn-export-wav");
@@ -247,6 +249,276 @@ try {
   const wavPath = resolve(shotDir, "..", "forge-stem-mix.wav");
   writeFileSync(wavPath, Buffer.from(wavBytes));
 
+  const studio = await page.evaluate(() => {
+    return ["#remix-bpm", "#remix-key", "#remix-lufs"].map((sel) => {
+      const el = document.querySelector(sel);
+      const style = getComputedStyle(el);
+      return {
+        sel,
+        width: Number.parseFloat(style.width),
+        display: style.display,
+        visibility: style.visibility,
+        opacity: style.opacity,
+      };
+    });
+  });
+  for (const field of studio) {
+    if (field.display === "none" || field.visibility === "hidden" || field.opacity === "0") {
+      throw new Error(`vocal studio input hidden: ${JSON.stringify(field)}`);
+    }
+    if (!(field.width >= 40)) throw new Error(`vocal studio input narrower than 40px: ${JSON.stringify(field)}`);
+  }
+
+  await page.click("#btn-play-all");
+  await page.waitForFunction(
+    () => document.querySelector("#btn-play-all")?.getAttribute("aria-pressed") === "false",
+  );
+
+  const loadNamed = async (deck, stem, freq, seconds, name) => {
+    const before = await page.$eval("#status-msg", (el) => el.textContent);
+    await page.evaluate(
+      ({ deck, stem, bytes, name }) => {
+        const input = document.querySelector(`.stem-file[data-deck="${deck}"][data-stem="${stem}"]`);
+        const file = new File([new Uint8Array(bytes)], name, { type: "audio/wav" });
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        input.files = transfer.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      },
+      { deck, stem, bytes: toneWav(freq, seconds), name },
+    );
+    await page.waitForFunction(
+      (previous) => {
+        const text = document.querySelector("#status-msg")?.textContent ?? "";
+        return text !== previous && text.includes("loaded");
+      },
+      { timeout: 30_000 },
+      before,
+    );
+  };
+
+  const freqs = [200, 330, 510, 870];
+  for (let stem = 0; stem < 4; stem++) {
+    await loadNamed(2, stem, freqs[stem], 4, `stem-${stem}-${freqs[stem]}hz.wav`);
+  }
+  await page.click('.deck-play[data-deck="2"]');
+  await page.waitForFunction(
+    () => document.querySelector('.deck-play[data-deck="2"]')?.getAttribute("aria-pressed") === "true",
+  );
+
+  const capture = () =>
+    page.evaluate(() => {
+      const sample = window.__forgeCapture?.();
+      if (!sample) return null;
+      return {
+        rms: sample.rms,
+        peak: sample.peak,
+        nan: sample.nan,
+        time: Array.from(sample.time),
+        rate: Number(document.documentElement.dataset.sampleRate || 48000),
+      };
+    });
+
+  const goertzel = (time, freq, rate) => {
+    const n = time.length;
+    const k = Math.round((freq * n) / rate);
+    const omega = (2 * Math.PI * k) / n;
+    const coeff = 2 * Math.cos(omega);
+    let s0 = 0;
+    let s1 = 0;
+    let s2 = 0;
+    for (let i = 0; i < n; i++) {
+      s0 = time[i] + coeff * s1 - s2;
+      s2 = s1;
+      s1 = s0;
+    }
+    return (s1 * s1 + s2 * s2 - coeff * s1 * s2) / n;
+  };
+
+  await page.waitForFunction(() => {
+    const sample = window.__forgeCapture?.();
+    return Boolean(sample && sample.rms > 0.001);
+  });
+  const allOn = await capture();
+  if (!allOn || !(allOn.rms > 0.001)) throw new Error(`four stems silent: ${allOn?.rms}`);
+
+  for (let stem = 0; stem < 4; stem++) {
+    await page.click(`[data-action="stem-mute"][data-deck="2"][data-stem="${stem}"]`);
+  }
+  await new Promise((r) => setTimeout(r, 250));
+  const allMuted = await capture();
+  if (!allMuted || !(allMuted.rms < 0.025) || !(allMuted.rms < allOn.rms * 0.1)) {
+    throw new Error(`mute-all RMS ${allMuted?.rms} (full ${allOn.rms})`);
+  }
+  for (let stem = 0; stem < 4; stem++) {
+    await page.click(`[data-action="stem-mute"][data-deck="2"][data-stem="${stem}"]`);
+  }
+
+  const solos = [];
+  for (let stem = 0; stem < 4; stem++) {
+    await page.click(`[data-action="stem-solo"][data-deck="2"][data-stem="${stem}"]`);
+    await new Promise((r) => setTimeout(r, 200));
+    const sample = await capture();
+    if (!sample || sample.nan) throw new Error(`solo ${stem} NaN`);
+    if (sample.peak > 1.001) throw new Error(`solo ${stem} clipped at ${sample.peak}`);
+    const powers = freqs.map((freq) => goertzel(sample.time, freq, sample.rate));
+    const peak = Math.max(...powers);
+    solos.push({ stem, powers, rms: sample.rms });
+    if (!(sample.rms > 0.001)) throw new Error(`solo ${stem} silent`);
+    powers.forEach((power, index) => {
+      if (index === stem) return;
+      if (power > peak * 0.08) throw new Error(`solo ${stem} leaked freq ${freqs[index]} (${power} vs ${peak})`);
+    });
+    await page.click(`[data-action="stem-solo"][data-deck="2"][data-stem="${stem}"]`);
+  }
+
+  await page.click('[data-action="stem-solo"][data-deck="2"][data-stem="1"]');
+  const gains = [];
+  let previous = -1;
+  for (const gain of [0, 2500, 5000, 10000, 12500]) {
+    await page.$eval('.stem-fader[data-deck="2"][data-stem="1"]', (el, value) => {
+      el.value = String(value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }, gain);
+    await new Promise((r) => setTimeout(r, 180));
+    const sample = await capture();
+    if (!sample) throw new Error("capture missing during gain sweep");
+    gains.push(sample.rms);
+    if (!(sample.rms + 0.0005 >= previous)) throw new Error(`gain ${gain} RMS ${sample.rms} after ${previous}`);
+    previous = sample.rms;
+  }
+  await page.click('[data-action="stem-solo"][data-deck="2"][data-stem="1"]');
+  await page.$eval('.stem-fader[data-deck="2"][data-stem="1"]', (el) => {
+    el.value = "10000";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  const readPos = () => page.$eval("[data-song-card='2']", (el) => Number(el.dataset.playhead || 0));
+  await page.click('.deck-play[data-deck="2"]');
+  await new Promise((r) => setTimeout(r, 250));
+  const paused = await capture();
+  const heldA = await readPos();
+  await new Promise((r) => setTimeout(r, 350));
+  const heldB = await readPos();
+  if (!paused || paused.rms > 0.025) throw new Error(`pause RMS ${paused?.rms}`);
+  if (Math.abs(heldB - heldA) > 2_048) throw new Error(`pause moved playhead ${heldA} -> ${heldB}`);
+  await page.click('.deck-play[data-deck="2"]');
+  await new Promise((r) => setTimeout(r, 400));
+  const posResumed = await readPos();
+  if (!(posResumed > heldB + 200)) throw new Error(`playhead did not continue ${heldB} -> ${posResumed}`);
+
+  await page.click('[data-action="repeat-toggle"][data-deck="2"]');
+  const repeat = await page.$eval('[data-action="repeat-toggle"][data-deck="2"]', (el) => ({
+    pressed: el.getAttribute("aria-pressed"),
+    text: el.textContent,
+  }));
+  if (repeat.pressed !== "true") throw new Error("repeat did not press");
+  if (!repeat.text?.includes("4 beats")) throw new Error(`repeat label ${repeat.text}`);
+  const region = await page.$eval("[data-song-card='2']", (el) => ({
+    start: Number(el.dataset.loopStart),
+    end: Number(el.dataset.loopEnd),
+  }));
+  if (!(region.end > region.start)) throw new Error(`empty loop ${region.start} ${region.end}`);
+  let previousPos = await readPos();
+  let wrapped = false;
+  const wrapDeadline = Date.now() + 8_000;
+  while (Date.now() < wrapDeadline) {
+    await new Promise((r) => setTimeout(r, 100));
+    const pos = await readPos();
+    if (pos < previousPos - 1_000 && pos >= region.start - 2_048 && pos < region.end) {
+      wrapped = true;
+      break;
+    }
+    previousPos = pos;
+  }
+  if (!wrapped) throw new Error(`playhead did not wrap inside ${region.start}..${region.end}, last ${previousPos}`);
+  shots.push(resolve(shotDir, "loop-active-1280.png"));
+  await page.screenshot({ path: shots.at(-1), fullPage: true });
+
+  const rateOf = async () => {
+    const a = await readPos();
+    await new Promise((r) => setTimeout(r, 400));
+    const b = await readPos();
+    return b - a;
+  };
+  await page.$eval('[data-slider="pace"][data-deck="2"]', (el) => {
+    el.value = "500";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const unity = await rateOf();
+  await page.$eval('[data-slider="pace"][data-deck="2"]', (el) => {
+    el.value = "1000";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const fast = await rateOf();
+  const tempo = await page.$eval("[data-song-card='2']", (el) => el.dataset.tempoPmy);
+  if (tempo !== "20000") throw new Error(`tempo pmy ${tempo}`);
+  if (!(fast > unity * 1.4)) throw new Error(`pace did not speed up (${unity} -> ${fast} frames)`);
+  await page.click('[data-action="keylock"][data-deck="2"]');
+  const locked = await page.$eval('[data-action="keylock"][data-deck="2"]', (el) => el.getAttribute("aria-pressed"));
+  if (locked !== "true") throw new Error("keylock did not latch");
+
+  const dry = await capture();
+  const fxDeltas = {};
+  for (const name of ["filter", "echo", "reverb"]) {
+    await page.click(`[data-fx="${name}"]`);
+    await new Promise((r) => setTimeout(r, 350));
+    const wet = await capture();
+    if (!wet || wet.nan) throw new Error(`${name} produced NaN`);
+    if (wet.peak > 1.001) throw new Error(`${name} clipped at ${wet.peak}`);
+    const delta = Math.abs(wet.rms - dry.rms);
+    fxDeltas[name] = delta;
+    if (!(delta > 0.002)) throw new Error(`${name} did not change the mix (rms ${dry.rms} -> ${wet.rms})`);
+    await page.click(`[data-fx="${name}"]`);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  await page.evaluate(() => {
+    const button = document.querySelector('[data-fx="buildup"]');
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 280));
+  const buildup = await capture();
+  await page.evaluate(() => {
+    document.querySelector('[data-fx="buildup"]').dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+  });
+  if (!buildup || buildup.nan || buildup.peak > 1.001) throw new Error("build-up invalid");
+  if (!(Math.abs(buildup.rms - dry.rms) > 0.002)) throw new Error(`build-up did not change RMS ${dry.rms} -> ${buildup.rms}`);
+
+  const dropBytes = toneWav(330, 1);
+  await page.evaluate((bytes) => {
+    const file = new File([new Uint8Array(bytes)], "dropped-song.wav", { type: "audio/wav" });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    const zone = document.querySelector('.song-drop[data-deck="3"]');
+    zone.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    zone.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  }, dropBytes);
+  await page.waitForFunction(() => document.querySelector('.song-drop[data-deck="3"]')?.classList.contains("is-hot"));
+  const dropText = await page.$eval('.song-drop[data-deck="3"] .drop-hint', (el) => el.textContent);
+  if (!dropText?.includes("Drop to load")) throw new Error(`drop hint ${dropText}`);
+  shots.push(resolve(shotDir, "drag-over-1280.png"));
+  await page.screenshot({ path: shots.at(-1), fullPage: true });
+  await page.evaluate((bytes) => {
+    const file = new File([new Uint8Array(bytes)], "dropped-song.wav", { type: "audio/wav" });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    const zone = document.querySelector('.song-drop[data-deck="3"]');
+    zone.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  }, dropBytes);
+  await page.waitForFunction(() => {
+    const text = document.querySelector("#status-msg")?.textContent ?? "";
+    return text.includes("Auto-split needs the updated engine") || text.includes("split into");
+  });
+  await page.click('.deck-play[data-deck="3"]');
+  await page.waitForFunction(() => {
+    const sample = window.__forgeCapture?.();
+    return Boolean(sample && sample.rms > 0.001);
+  });
+
+  await page.click('[data-action="toggle-pro"][data-deck="0"]');
+  shots.push(resolve(shotDir, "more-controls-1280.png"));
+  await page.screenshot({ path: shots.at(-1), fullPage: true });
+
   const report = {
     ok: true,
     hash,
@@ -254,6 +526,10 @@ try {
     rms,
     exportStatus,
     wav,
+    studio,
+    solos: solos.map((row) => row.rms),
+    gains,
+    fxDeltas,
     shots,
     logs: logs.slice(-20),
   };

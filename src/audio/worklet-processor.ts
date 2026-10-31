@@ -21,6 +21,7 @@ const TELEMETRY_STRIDE_QUANTA = 6; // ~62.5 Hz at 48 kHz / 128-frame quantum
 class ForgeRemixWorkletProcessor extends AudioWorkletProcessor {
   private engine: Engine | null = null;
   private readonly interleavedBuf = new Float32Array(WEBAUDIO_QUANTUM_FRAMES * 2);
+  private readonly telemetryScratch = new Uint32Array(8);
   private quantaCounter = 0;
 
   constructor() {
@@ -162,7 +163,14 @@ class ForgeRemixWorkletProcessor extends AudioWorkletProcessor {
       this.quantaCounter = 0;
       const rms = engine.master_rms();
       const spectrum = engine.spectrum();
-      this.port.postMessage({ type: "TELEMETRY", rms, spectrum }, [spectrum.buffer]);
+      engine.read_telemetry_into(this.telemetryScratch);
+      const positions: [number, number, number, number] = [
+        this.telemetryScratch[0],
+        this.telemetryScratch[1],
+        this.telemetryScratch[2],
+        this.telemetryScratch[3],
+      ];
+      this.port.postMessage({ type: "TELEMETRY", rms, spectrum, positions }, [spectrum.buffer]);
     }
     return true;
   }

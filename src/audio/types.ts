@@ -90,7 +90,13 @@ export type WorkletInboundMessage =
 
 export type WorkletOutboundMessage =
   | { type: "READY" }
-  | { type: "TELEMETRY"; rms: number; spectrum: Float32Array }
+  | {
+      type: "TELEMETRY";
+      rms: number;
+      spectrum: Float32Array;
+      /** Playhead frames for decks A–D from `read_telemetry_into` slots 0–3. */
+      positions: [number, number, number, number];
+    }
   | { type: "ERROR"; message: string };
 
 /** One deck of equal-length stems plus the fader state the offline render should apply. */

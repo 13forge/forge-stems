@@ -44,7 +44,7 @@ describe("ui ergonomics: layout and defaults", () => {
 
   it("uses plain-language labels and no raw engine jargon", () => {
     const text = root.textContent ?? "";
-    for (const label of ["Song 1", "Song 2", "Drums", "Bass", "Voice", "Music", "Blend", "Only This"]) {
+    for (const label of ["Song 1", "Song 2", "Drums", "Bass", "Vocals", "Music", "Blend", "Only This", "Play"]) {
       expect(text).toContain(label);
     }
     expect(text).not.toContain("Crossfader (pmy)");
@@ -116,6 +116,46 @@ describe("ui ergonomics: high-ceiling controls dispatch to RemixController", () 
   it("repeat toggle without a loaded song does not enable a loop", () => {
     click(root, '[data-action="repeat-toggle"][data-deck="2"]');
     expect(controller.decks[2].loop.enabled).toBe(false);
+  });
+
+  it("repeat starts at the playhead and labels one bar as 4 beats", () => {
+    controller.decks[0].stems[0] = new Float32Array(96_000);
+    controller.decks[0].pos_frames = 1_000;
+    click(root, '[data-action="repeat-toggle"][data-deck="0"]');
+    const loop = controller.decks[0].loop;
+    expect(loop.enabled).toBe(true);
+    expect(loop.start_frame).toBe(1_000);
+    expect(loop.end_frame - loop.start_frame).toBe(96_000);
+    const button = q<HTMLButtonElement>(root, '[data-action="repeat-toggle"][data-deck="0"]');
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.textContent).toBe("Repeat (4 beats)");
+    click(root, '[data-action="repeat-half"][data-deck="0"]');
+    expect(controller.decks[0].loop.enabled).toBe(true);
+    expect(controller.decks[0].loop.end_frame - controller.decks[0].loop.start_frame).toBe(48_000);
+    expect(q<HTMLButtonElement>(root, '[data-action="repeat-half"][data-deck="0"]').getAttribute("aria-pressed")).toBe("true");
+    click(root, '[data-action="repeat-double"][data-deck="0"]');
+    expect(controller.decks[0].loop.end_frame - controller.decks[0].loop.start_frame).toBe(96_000);
+  });
+
+  it("pace slider speeds up toward the right and unity is 10000", () => {
+    const pace = q<HTMLInputElement>(root, '[data-slider="pace"][data-deck="0"]');
+    expect(pace.value).toBe("500");
+    expect(controller.decks[0].tempo_pmy).toBe(10_000);
+    pace.value = "1000";
+    pace.dispatchEvent(new Event("input"));
+    expect(controller.decks[0].tempo_pmy).toBe(20_000);
+    pace.value = "0";
+    pace.dispatchEvent(new Event("input"));
+    expect(controller.decks[0].tempo_pmy).toBe(5_000);
+    expect(q(root, "#pace-0").textContent).toContain("60 BPM");
+    const bpm = q<HTMLInputElement>(root, "#remix-bpm");
+    const key = q<HTMLInputElement>(root, "#remix-key");
+    const lufs = q<HTMLInputElement>(root, "#remix-lufs");
+    for (const input of [bpm, key, lufs]) {
+      expect(input.type === "file").toBe(false);
+      expect(input.closest("[hidden]")).toBeNull();
+      expect(input.classList.contains("text-input")).toBe(true);
+    }
   });
 
   it("Keep Original Pitch toggles keylock", () => {

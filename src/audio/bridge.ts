@@ -1,3 +1,5 @@
+import { PerformanceFx, type EchoDivision, type MixCapture } from "./performance-fx.js";
+import { planFxArm, type FxArmMessage } from "./fx-arm.js";
 import {
   clampBpmCbpm,
   clampLevelPmy,
@@ -6,6 +8,7 @@ import {
   clampStemMask,
   clampUnitPmy,
   type DeckIndex,
+  type FxSlotIndex,
   type HotcueSlotIndex,
   type OfflineDeckSpec,
   type RemixTargetSpec,
@@ -17,7 +20,7 @@ import {
 } from "./types.js";
 
 export interface TelemetryListener {
-  (rms: number, spectrum: Float32Array): void;
+  (rms: number, spectrum: Float32Array, positions: [number, number, number, number]): void;
 }
 
 export class RemixAudioBridge {
@@ -32,6 +35,10 @@ export class RemixAudioBridge {
   private telemetryListener: TelemetryListener | null = null;
   private errorListener: ((message: string) => void) | null = null;
   private initPromise: Promise<void> | null = null;
+  private fx: PerformanceFx | null = null;
+  private readonly positions: [number, number, number, number] = [0, 0, 0, 0];
+  /** Engine `toggle_fx_slot` is relative. This tracks the bit we last sent. */
+  private readonly engineFxOn: [boolean, boolean, boolean, boolean] = [false, false, false, false];
 
   get sampleRate(): number {
     return this.ctx?.sampleRate ?? 48_000;
@@ -39,6 +46,19 @@ export class RemixAudioBridge {
 
   get isReady(): boolean {
     return this.ctx !== null && this.workletNode !== null;
+  }
+
+  get audioState(): AudioContextState | "closed" {
+    return this.ctx?.state ?? "closed";
+  }
+
+  get playheads(): readonly [number, number, number, number] {
+    return this.positions;
+  }
+
+  /** First play (and any later play) must resume a suspended context. */
+  async resume(): Promise<void> {
+    if (this.ctx && this.ctx.state === "suspended") await this.ctx.resume();
   }
 
   async init(wasmUrl: string | URL, workletModuleUrl: string | URL): Promise<void> {
@@ -64,7 +84,10 @@ export class RemixAudioBridge {
       numberOfOutputs: 1,
       outputChannelCount: [2],
     });
-    node.connect(ctx.destination);
+    const fx = new PerformanceFx(ctx);
+    node.connect(fx.input);
+    fx.connect(ctx.destination);
+    this.fx = fx;
 
     await new Promise<void>((resolve, reject) => {
       node.port.onmessage = (ev: MessageEvent<WorkletOutboundMessage>) => {
@@ -72,7 +95,11 @@ export class RemixAudioBridge {
         if (msg.type === "READY") {
           resolve();
         } else if (msg.type === "TELEMETRY") {
-          this.telemetryListener?.(msg.rms, msg.spectrum);
+          this.positions[0] = msg.positions[0] ?? 0;
+          this.positions[1] = msg.positions[1] ?? 0;
+          this.positions[2] = msg.positions[2] ?? 0;
+          this.positions[3] = msg.positions[3] ?? 0;
+          this.telemetryListener?.(msg.rms, msg.spectrum, this.positions);
         } else if (msg.type === "ERROR") {
           if (this.isReady) this.errorListener?.(msg.message);
           else reject(new Error(msg.message));
@@ -244,6 +271,66 @@ export class RemixAudioBridge {
   setDeckFilterPmy(deck: DeckIndex, filter_pmy: number): void {
     if (!this.workletNode) return;
     this.postToWorklet(this.workletNode, { type: "SET_DECK_FILTER_PMY", deck, filter_pmy });
+  }
+
+  applyFxPlan(messages: readonly FxArmMessage[]): void {
+    for (const msg of messages) {
+      if (msg.type === "SET_FX_SLOT") this.setFxSlot(msg.slot, msg.preset);
+      else if (msg.type === "SET_FX_INTENSITY_PMY") this.setFxIntensityPmy(msg.slot, msg.intensity_pmy);
+      else this.toggleFxSlot(msg.slot);
+    }
+  }
+
+  /**
+   * Send preset and wet amount before any toggle. A bare `toggle_fx_slot` opens a dry-killing insert.
+   * Returns the intensity that was sent.
+   */
+  armFxSlot(slot: FxSlotIndex, preset: string, intensity_pmy: number, nextOn: boolean): number {
+    const plan = planFxArm({
+      slot,
+      preset,
+      intensity_pmy,
+      engineOn: this.engineFxOn[slot],
+      nextOn,
+    });
+    const intensity = plan[1].type === "SET_FX_INTENSITY_PMY" ? plan[1].intensity_pmy : intensity_pmy;
+    if (!this.workletNode) return intensity;
+    this.applyFxPlan(plan);
+    if (plan.some((msg) => msg.type === "TOGGLE_FX_SLOT")) this.engineFxOn[slot] = nextOn;
+    return intensity;
+  }
+
+  setPerformanceEcho(on: boolean, amountPmy: number, division: EchoDivision, bpm: number): void {
+    this.fx?.setBpm(bpm);
+    this.fx?.setEcho(on, amountPmy, division);
+  }
+
+  setPerformanceReverb(on: boolean, amountPmy: number): void {
+    this.fx?.setReverb(on, amountPmy);
+  }
+
+  setPerformanceFilter(on: boolean, pmy: number): void {
+    this.fx?.setFilter(on, pmy);
+  }
+
+  holdEchoOut(): void {
+    this.fx?.holdEchoOut();
+  }
+
+  releaseEchoOut(): void {
+    this.fx?.releaseEchoOut();
+  }
+
+  holdBuildup(): void {
+    this.fx?.holdBuildup();
+  }
+
+  releaseBuildup(): void {
+    this.fx?.releaseBuildup();
+  }
+
+  captureMix(): MixCapture | null {
+    return this.fx?.capture() ?? null;
   }
 
   setFxSlot(slot: 0 | 1 | 2 | 3, preset: string): void {
