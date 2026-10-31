@@ -131,13 +131,24 @@ export class RemixAudioBridge {
     const tempCtx = this.ctx ?? new AudioContext();
     const audioBuf = await tempCtx.decodeAudioData(arrayBuf);
     const len = audioBuf.length;
-    const ch0 = audioBuf.getChannelData(0);
-    const ch1 = audioBuf.numberOfChannels > 1 ? audioBuf.getChannelData(1) : null;
+    const channels = Math.max(1, audioBuf.numberOfChannels);
+    const data: Float32Array[] = [];
+    for (let c = 0; c < channels; c++) data.push(audioBuf.getChannelData(c));
+    const ch0 = data[0];
+    const ch1 = channels === 2 ? data[1] : null;
     const mono = new Float32Array(len);
     const step = 262_144;
     for (let i = 0; i < len; i += step) {
       const end = Math.min(len, i + step);
-      if (ch1) {
+      if (channels > 2) {
+        // Surround or multichannel video audio: average every channel so none is dropped.
+        const scale = 1 / channels;
+        for (let j = i; j < end; j++) {
+          let sum = 0;
+          for (let c = 0; c < channels; c++) sum += data[c][j];
+          mono[j] = sum * scale;
+        }
+      } else if (ch1) {
         for (let j = i; j < end; j++) mono[j] = 0.5 * (ch0[j] + ch1[j]);
       } else {
         mono.set(ch0.subarray(i, end), i);

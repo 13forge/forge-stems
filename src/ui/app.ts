@@ -22,7 +22,8 @@ import { decodeMixFragment, encodeMixFragment } from "../state/share.js";
 import { mountMoonforgeSky, type SkyMeters } from "./moonforge-sky.js";
 
 const FADER_STEP = 100;
-const AUDIO_ACCEPT = "audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac,.aiff,.aif";
+const MEDIA_ACCEPT =
+  "audio/*,video/mp4,video/webm,video/quicktime,.wav,.mp3,.flac,.ogg,.aiff,.aif,.m4a,.aac,.mp4,.webm,.mov";
 
 /** Plain-language primary labels. Stem index 3 is "Music" in the UI (see RemixController.muteMask). */
 const SONG_LABELS = ["Song 1", "Song 2", "Song 3", "Song 4"] as const;
@@ -86,7 +87,7 @@ export function mountRemixShell(root: HTMLElement): {
           <output class="label-secondary-metric" id="val-${deck}-${stem}">${pct(gain)}</output>
         </div>
         <span class="stem-file-name" data-deck="${deck}" data-stem="${stem}">Drop a part</span>
-        <input class="stem-file" type="file" accept="${AUDIO_ACCEPT}" data-deck="${deck}" data-stem="${stem}" tabindex="-1" aria-hidden="true" />
+        <input class="stem-file" type="file" accept="${MEDIA_ACCEPT}" data-deck="${deck}" data-stem="${stem}" tabindex="-1" aria-hidden="true" />
         <input
           class="stem-fader"
           type="range"
@@ -127,7 +128,7 @@ export function mountRemixShell(root: HTMLElement): {
             <div class="song-drop" data-deck="${deck}">
               <button type="button" class="choose-song" data-action="choose-song" data-deck="${deck}">Load full song (auto-split into 4 parts)</button>
               <p class="drop-hint">Drop to load</p>
-              <input class="song-file stem-file" type="file" accept="${AUDIO_ACCEPT}" data-deck="${deck}" data-role="full-song" tabindex="-1" aria-hidden="true" />
+              <input class="song-file stem-file" type="file" accept="${MEDIA_ACCEPT}" data-deck="${deck}" data-role="full-song" tabindex="-1" aria-hidden="true" />
             </div>
             <p class="split-badge" data-split-badge data-deck="${deck}" hidden>Splitting 4 stems…</p>
             <p class="split-note" data-split-note data-deck="${deck}" hidden></p>
@@ -735,7 +736,7 @@ export function mountRemixShell(root: HTMLElement): {
   const loadAudioFiles = async (deck: DeckIndex, files: File[], forcedStem: StemIndex | null) => {
     const audio = files.filter(isAudioFile);
     if (audio.length === 0) {
-      setStatus("Use a wav, mp3, flac, ogg, m4a, or aiff file.");
+      setStatus("Use an audio or video file (wav, mp3, flac, ogg, m4a, aiff, mp4, webm, mov).");
       return;
     }
     if (audio.length === 1) {
@@ -1211,7 +1212,8 @@ export function mountRemixShell(root: HTMLElement): {
         return;
       }
       const start = state.pos_frames >>> 0;
-      const length = oneBarFrames(state.bpm_cbpm, bridge.sampleRate);
+      // Default length is one bar (96000 frames at 120 BPM / 48 kHz), never longer than the loaded song.
+      const length = Math.min(oneBarFrames(state.bpm_cbpm, bridge.sampleRate), stemFrameCount(state.stems));
       pushLoop(deck, start, start + length);
     });
   });

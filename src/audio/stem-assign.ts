@@ -1,9 +1,13 @@
 import type { StemIndex } from "./types.js";
 
-const AUDIO_EXT = /\.(wav|mp3|flac|ogg|oga|m4a|aac|aiff|aif|mp4)$/i;
+const AUDIO_EXT = /\.(wav|mp3|flac|ogg|oga|m4a|aac|aiff|aif|mp4|webm|mov)$/i;
 
+/**
+ * Audio or video container that `decodeAudioData` may read.
+ * Not rejected by `file.type` alone: drops often arrive with an empty or generic type, so the extension also counts.
+ */
 export function isAudioFile(file: File): boolean {
-  if (file.type.startsWith("audio/")) return true;
+  if (file.type.startsWith("audio/") || file.type.startsWith("video/")) return true;
   return AUDIO_EXT.test(file.name);
 }
 
