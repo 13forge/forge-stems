@@ -32,7 +32,7 @@ import {
   type MixSettings,
 } from "./share.js";
 
-/** Never pure black (0,0,0); canonical floor owned by forge-look-v3: BLACK_FLOOR_RGB = [10, 7, 5]. */
+/** Never pure black (0,0,0); floor is a dark tint of the surface hue: BLACK_FLOOR_RGB = [10, 7, 5]. */
 export const BLACK_FLOOR_RGB: readonly [number, number, number] = [10, 7, 5];
 export const BLACK_FLOOR_HEX = "#0a0705";
 
