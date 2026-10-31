@@ -195,12 +195,18 @@ html, body {
 input[type="range"][data-slider] {
   -webkit-appearance: none;
   appearance: none;
+  direction: ltr;
   width: 100%;
   height: 6px;
   background: rgba(230, 241, 255, 0.16);
   border-radius: var(--radius-pill);
   outline: none;
   cursor: pointer;
+}
+
+input[type="range"][data-slider="pace"] {
+  direction: ltr;
+  background: linear-gradient(90deg, #1AE0FF var(--pct, 50%), rgba(230, 241, 255, 0.16) var(--pct, 50%));
 }
 
 input[type="range"][data-slider]::-webkit-slider-thumb {
@@ -253,6 +259,7 @@ a.skip:focus-visible {
   clip: rect(0, 0, 0, 0) !important;
   white-space: nowrap !important;
   border: 0 !important;
+  pointer-events: none !important;
   background: var(--bg-crypt-drawer) !important;
   color: var(--text-moonlight) !important;
 }
@@ -267,13 +274,22 @@ a.skip:focus-visible {
 
 /* Text, number, and select controls. #app is the mount in index.html. Range, file, and checkbox stay custom. */
 #app input:not([type="file"]):not([type="range"]):not([type="checkbox"]),
-#app select {
-  background: #070910;
-  color: #E6F1FF;
-  border: 1px solid #1E293B;
+#app select,
+#app input.text-input {
+  background: #070910 !important;
+  color: #E6F1FF !important;
+  border: 1px solid #1E293B !important;
   border-radius: 6px;
   padding: 4px 8px;
   color-scheme: dark;
+  min-width: 8rem;
+  width: 10rem;
+  display: inline-block;
+  visibility: visible;
+  opacity: 1;
+  position: static;
+  clip: auto;
+  height: auto;
 }
 
 #app input:not([type="file"]):not([type="range"]):not([type="checkbox"]):focus-visible,
@@ -316,4 +332,119 @@ button[aria-pressed="true"][data-action="stem-mute"] {
   background: rgba(244, 63, 94, 0.2);
   border-color: var(--accent-blood-moon);
   color: #ffe4e6;
+}
+
+button.deck-play {
+  font-size: 1.15rem;
+  padding: 12px 22px;
+  min-width: 132px;
+}
+
+button.deck-play[aria-pressed="true"],
+button[data-action="repeat-toggle"][aria-pressed="true"],
+button[data-action="repeat-half"][aria-pressed="true"],
+button[data-action="repeat-double"][aria-pressed="true"],
+button[data-fx][aria-pressed="true"] {
+  background: #1AE0FF;
+  color: #050812;
+  border-color: #1AE0FF;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #1AE0FF;
+  color: #1AE0FF;
+  font-weight: 700;
+}
+
+.step[data-reachable="false"] {
+  opacity: 0.45;
+}
+
+.song-drop,
+.stem-drop.is-hot,
+.song-drop.is-hot,
+body.is-file-drag .song-drop {
+  border: 1px dashed #1AE0FF;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.choose-song {
+  width: 100%;
+  padding: 14px 12px;
+  font-size: 1rem;
+}
+
+.drop-hint {
+  margin: 8px 0 0;
+  color: #1AE0FF;
+  font-weight: 700;
+}
+
+.playhead-bar {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(230, 241, 255, 0.14);
+  overflow: hidden;
+}
+
+.loop-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(26, 224, 255, 0.55);
+}
+
+.playhead-tip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #E6F1FF;
+  box-shadow: 0 0 8px #1AE0FF;
+}
+
+.split-badge {
+  display: inline-block;
+  margin: 8px 0 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #1AE0FF;
+  color: #050812;
+  font-weight: 700;
+}
+
+.fx-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.remix-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.remix-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 10rem;
 }

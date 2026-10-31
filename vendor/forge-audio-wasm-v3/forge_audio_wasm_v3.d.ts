@@ -166,6 +166,14 @@ export function remix(buf: Float32Array, sample_rate: number, target: any): Floa
  */
 export function stem_split(buf: Float32Array, sample_rate: number): any;
 
+/**
+ * 4-way HPSS cascade wrapper (`drums`, `bass`, `voice`, `other`).
+ * Returns a flat `Vec<f32>` (a packed `Float32Array` in JS) of length `4 * signal.len()`:
+ * `[0..n]` drums, `[n..2n]` bass, `[2n..3n]` voice, `[3n..4n]` other (Music).
+ * Load-time only (allocates). Never call from a realtime block path.
+ */
+export function stem_split_four(signal: Float32Array, sample_rate: number): Float32Array;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -207,10 +215,12 @@ export interface InitOutput {
     readonly match_master: (a: number, b: number, c: number, d: number) => void;
     readonly remix: (a: number, b: number, c: number, d: number) => void;
     readonly stem_split: (a: number, b: number, c: number) => void;
+    readonly stem_split_four: (a: number, b: number, c: number, d: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
+    readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

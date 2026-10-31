@@ -50,8 +50,12 @@ export interface DeckStemUiState extends DeckMixSettings {
   /** Bookmarks 1–8 as frame positions; `null` = empty. Mirrors the worklet engine. */
   hotcues: [number | null, number | null, number | null, number | null, number | null, number | null, number | null, number | null];
   loop: { enabled: boolean; start_frame: number; end_frame: number };
-  /** Pace in centi-BPM, `4_000..=24_000`. */
+  /** 1, 2, 4, or 8 bars. The loop button uses this length, anchored at the playhead. */
+  loopBars: 1 | 2 | 4 | 8;
+  /** Pace in centi-BPM, `4_000..=24_000`. Loop length uses this. Playback rate is `tempo_pmy`. */
   bpm_cbpm: number;
+  /** Live playhead in frames, written from worklet telemetry slots 0–3. */
+  pos_frames: number;
   beat_snap: boolean;
 }
 
@@ -80,7 +84,9 @@ function makeDeck(): DeckStemUiState {
     eq_db: [0, 0, 0],
     hotcues: [null, null, null, null, null, null, null, null],
     loop: { enabled: false, start_frame: 0, end_frame: 0 },
+    loopBars: 4,
     bpm_cbpm: BPM_NAN_FALLBACK_CBPM,
+    pos_frames: 0,
     beat_snap: false,
   };
 }

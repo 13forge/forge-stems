@@ -635,6 +635,31 @@ export function stem_split(buf, sample_rate) {
         wasm.__wbindgen_add_to_stack_pointer(16);
     }
 }
+
+/**
+ * 4-way HPSS cascade wrapper (`drums`, `bass`, `voice`, `other`).
+ * Returns a flat `Vec<f32>` (a packed `Float32Array` in JS) of length `4 * signal.len()`:
+ * `[0..n]` drums, `[n..2n]` bass, `[2n..3n]` voice, `[3n..4n]` other (Music).
+ * Load-time only (allocates). Never call from a realtime block path.
+ * @param {Float32Array} signal
+ * @param {number} sample_rate
+ * @returns {Float32Array}
+ */
+export function stem_split_four(signal, sample_rate) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArrayF32ToWasm0(signal, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.stem_split_four(retptr, ptr0, len0, sample_rate);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var v2 = getArrayF32FromWasm0(r0, r1).slice();
+        wasm.__wbindgen_export4(r0, r1 * 4, 4);
+        return v2;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -809,6 +834,13 @@ function isLikeNone(x) {
 function passArray32ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 4, 4) >>> 0;
     getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayF32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getFloat32ArrayMemory0().set(arg, ptr / 4);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
