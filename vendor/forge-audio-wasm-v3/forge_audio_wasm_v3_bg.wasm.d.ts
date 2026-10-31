@@ -9,6 +9,7 @@ export const engine_loop_resize: (a: number, b: number, c: number, d: number) =>
 export const engine_master_rms: (a: number) => number;
 export const engine_new: (a: number, b: number, c: number) => void;
 export const engine_nudge_deck: (a: number, b: number, c: number, d: number) => void;
+export const engine_read_telemetry_into: (a: number, b: number, c: number, d: number) => void;
 export const engine_render_block: (a: number, b: number) => number;
 export const engine_render_block_into: (a: number, b: number, c: number, d: number) => void;
 export const engine_set_crossfader: (a: number, b: number, c: number) => void;

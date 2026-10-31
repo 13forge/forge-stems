@@ -146,6 +146,18 @@ export class Engine {
         }
     }
     /**
+     * Zero-alloc telemetry readback into a caller-supplied slice of at least 8 `u32`:
+     * `[0..4]` playhead frames for decks A..D, `[4]` sub (<100 Hz) pmy, `[5]` mid (100 Hz..4 kHz) pmy,
+     * `[6]` high (>4 kHz) pmy, `[7]` master RMS pmy. Every energy value is `0..=10_000`.
+     * Float-to-permyriad conversion happens here, at the boundary; the mixer stays f32.
+     * @param {Uint32Array} out
+     */
+    read_telemetry_into(out) {
+        var ptr0 = passArray32ToWasm0(out, wasm.__wbindgen_export);
+        var len0 = WASM_VECTOR_LEN;
+        wasm.engine_read_telemetry_into(this.__wbg_ptr, ptr0, len0, addHeapObject(out));
+    }
+    /**
      * Renders `frames` stereo frames from `Mixer::mix_block` and returns a `Float32Array`.
      * @param {number} frames
      * @returns {Float32Array}
@@ -626,6 +638,9 @@ export function stem_split(buf, sample_rate) {
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
+        __wbg___wbindgen_copy_to_typed_array_c7f28e53671b41e8: function(arg0, arg1, arg2) {
+            new Uint8Array(getObject(arg2).buffer, getObject(arg2).byteOffset, getObject(arg2).byteLength).set(getArrayU8FromWasm0(arg0, arg1));
+        },
         __wbg___wbindgen_is_null_7d13f41e1a2d5140: function(arg0) {
             const ret = getObject(arg0) === null;
             return ret;
@@ -731,6 +746,11 @@ function getArrayF32FromWasm0(ptr, len) {
     return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
 }
 
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
 let cachedDataViewMemory0 = null;
 function getDataViewMemory0() {
     if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
@@ -749,6 +769,14 @@ function getFloat32ArrayMemory0() {
 
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
 }
 
 let cachedUint8ArrayMemory0 = null;
@@ -776,6 +804,13 @@ let heap_next = heap.length;
 
 function isLikeNone(x) {
     return x === undefined || x === null;
+}
+
+function passArray32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passStringToWasm0(arg, malloc, realloc) {
@@ -859,6 +894,7 @@ function __wbg_finalize_init(instance, module) {
     wasmModule = module;
     cachedDataViewMemory0 = null;
     cachedFloat32ArrayMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     return wasm;
 }
