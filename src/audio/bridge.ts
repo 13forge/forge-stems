@@ -132,13 +132,17 @@ export class RemixAudioBridge {
     const audioBuf = await tempCtx.decodeAudioData(arrayBuf);
     const len = audioBuf.length;
     const ch0 = audioBuf.getChannelData(0);
-    if (audioBuf.numberOfChannels === 1) {
-      return { pcm: ch0.slice(), sampleRate: audioBuf.sampleRate };
-    }
-    const ch1 = audioBuf.getChannelData(1);
+    const ch1 = audioBuf.numberOfChannels > 1 ? audioBuf.getChannelData(1) : null;
     const mono = new Float32Array(len);
-    for (let i = 0; i < len; i++) {
-      mono[i] = 0.5 * (ch0[i] + ch1[i]);
+    const step = 262_144;
+    for (let i = 0; i < len; i += step) {
+      const end = Math.min(len, i + step);
+      if (ch1) {
+        for (let j = i; j < end; j++) mono[j] = 0.5 * (ch0[j] + ch1[j]);
+      } else {
+        mono.set(ch0.subarray(i, end), i);
+      }
+      if (end < len) await new Promise((resolve) => setTimeout(resolve, 0));
     }
     return { pcm: mono, sampleRate: audioBuf.sampleRate };
   }

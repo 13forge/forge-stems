@@ -65,47 +65,119 @@ export interface SplitJobResult {
   bass: Float32Array;
   voice: Float32Array;
   music: Float32Array;
+  splitMs: number;
 }
 
 export interface SplitJobMiss {
   ok: false;
   reason: string;
+  pcm?: Float32Array;
 }
 
 let worker: Worker | null = null;
 let nextId = 1;
 const pending = new Map<number, (msg: SplitJobResult | SplitJobMiss) => void>();
 
+interface PartialChunk {
+  id: number;
+  partial: true;
+  stem: number;
+  offset: number;
+  length: number;
+  samples: Float32Array;
+}
+
+interface SplitDone {
+  id: number;
+  ok: true;
+  splitMs: number;
+  frames: number;
+}
+
+const assembly = new Map<number, Float32Array[]>();
+
 function workerHandle(): Worker {
   if (!worker) {
     worker = new Worker(new URL("./stem-split-worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (ev: MessageEvent<(SplitJobResult | SplitJobMiss) & { id: number }>) => {
+    worker.onmessage = (ev: MessageEvent<PartialChunk | SplitDone | (SplitJobMiss & { id: number })>) => {
       const data = ev.data;
-      const id = data.id;
-      const done = pending.get(id);
-      if (!done) return;
-      pending.delete(id);
-      if (data.ok) {
-        done({ ok: true, drums: data.drums, bass: data.bass, voice: data.voice, music: data.music });
-      } else {
-        done({ ok: false, reason: data.reason });
+      if ("uploadAck" in data) return;
+      if ("partial" in data && data.partial) {
+        let parts = assembly.get(data.id);
+        if (!parts) {
+          parts = new Array<Float32Array>(4);
+          assembly.set(data.id, parts);
+        }
+        if (!parts[data.stem]) parts[data.stem] = new Float32Array(data.length);
+        parts[data.stem].set(data.samples, data.offset);
+        worker?.postMessage({ ack: data.id });
+        return;
       }
+      const done = pending.get(data.id);
+      if (!done) return;
+      pending.delete(data.id);
+      if ("ok" in data && data.ok) {
+        const parts = assembly.get(data.id);
+        assembly.delete(data.id);
+        if (!parts) {
+          done({ ok: false, reason: "empty" });
+          return;
+        }
+        done({
+          ok: true,
+          drums: parts[0],
+          bass: parts[1],
+          voice: parts[2],
+          music: parts[3],
+          splitMs: data.splitMs,
+        });
+        return;
+      }
+      assembly.delete(data.id);
+      const miss = data as SplitJobMiss & { id: number };
+      done({ ok: false, reason: miss.reason, pcm: miss.pcm });
     };
   }
   return worker;
 }
 
+/** Starts the split worker during idle setup so the first drop does not parse it on the UI thread. */
+export function warmStemSplit(): void {
+  try {
+    if (typeof Worker === "undefined") return;
+    workerHandle();
+  } catch {
+    worker = null;
+  }
+}
+
 /** Runs in a dedicated worker so the audio thread keeps rendering. */
 export function splitFullSong(pcm: Float32Array, sampleRate: number): Promise<SplitJobResult | SplitJobMiss> {
   const id = nextId++;
-  const copy = pcm.slice();
+  const handle = workerHandle();
   return new Promise((resolve) => {
     pending.set(id, resolve);
-    try {
-      workerHandle().postMessage({ id, pcm: copy, sampleRate }, [copy.buffer]);
-    } catch (err) {
+    void uploadPcm(handle, id, pcm, sampleRate).catch((err) => {
       pending.delete(id);
-      resolve({ ok: false, reason: String(err) });
-    }
+      resolve({ ok: false, reason: String(err), pcm });
+    });
   });
+}
+
+async function uploadPcm(handle: Worker, id: number, pcm: Float32Array, sampleRate: number): Promise<void> {
+  handle.postMessage({ id, begin: true, sampleRate, length: pcm.length });
+  const chunk = 48_000;
+  for (let offset = 0; offset < pcm.length; offset += chunk) {
+    const samples = pcm.slice(offset, Math.min(pcm.length, offset + chunk));
+    await new Promise<void>((ack) => {
+      const onAck = (ev: MessageEvent<{ uploadAck?: number }>) => {
+        if (ev.data?.uploadAck !== id) return;
+        handle.removeEventListener("message", onAck);
+        ack();
+      };
+      handle.addEventListener("message", onAck);
+      handle.postMessage({ id, upload: true, offset, samples }, [samples.buffer]);
+    });
+  }
+  handle.postMessage({ id, uploadDone: true });
 }

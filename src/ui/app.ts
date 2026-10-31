@@ -4,7 +4,7 @@ import { encodeWavPcm16 } from "../audio/export.js";
 import { oneBarFrames, nextLoopLength, repeatLabel } from "../audio/loop-region.js";
 import { paceLabel, PACE_SLIDER_MAX, PACE_SLIDER_UNITY, sliderToTempoPmy, tempoToSlider } from "../audio/pace.js";
 import { assignStemFiles, isAudioFile } from "../audio/stem-assign.js";
-import { musicOnlyQuartet, quartetHasAudio, splitFullSong, type StemQuartet } from "../audio/stem-split.js";
+import { musicOnlyQuartet, quartetHasAudio, splitFullSong, warmStemSplit, type StemQuartet } from "../audio/stem-split.js";
 import { alignedStems, stemFrameCount } from "../audio/stems.js";
 import {
   DECK_LETTERS,
@@ -484,11 +484,54 @@ export function mountRemixShell(root: HTMLElement): {
     controller.effectiveMuted(deck, 3),
   ];
 
+  const copyAlignedYielding = async (
+    stems: readonly (Float32Array | null)[],
+  ): Promise<[Float32Array, Float32Array, Float32Array, Float32Array] | null> => {
+    const frames = stemFrameCount(stems);
+    if (frames === 0) return null;
+    const out: [Float32Array, Float32Array, Float32Array, Float32Array] = [
+      new Float32Array(frames),
+      new Float32Array(frames),
+      new Float32Array(frames),
+      new Float32Array(frames),
+    ];
+    const step = 262_144;
+    for (let i = 0; i < frames; i += step) {
+      const end = Math.min(frames, i + step);
+      for (let stem = 0; stem < 4; stem++) {
+        const src = stems[stem];
+        if (!src || src.length <= i) continue;
+        out[stem].set(src.subarray(i, Math.min(src.length, end)), i);
+      }
+      if (end < frames) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    return out;
+  };
+
   const pushDeckAudio = (deck: DeckIndex) => {
     if (!bridge.isReady) return;
-    const aligned = alignedStems(controller.decks[deck].stems);
-    if (!aligned) return;
+    const stems = controller.decks[deck].stems;
+    const frames = stemFrameCount(stems);
+    if (frames === 0) return;
     const state = controller.decks[deck];
+    if (frames > 200_000) {
+      void copyAlignedYielding(stems).then((copied) => {
+        if (!copied || !bridge.isReady) return;
+        bridge.loadStems(deck, copied[0], copied[1], copied[2], copied[3], {
+          gain_pmy: [state.gain_pmy[0], state.gain_pmy[1], state.gain_pmy[2], state.gain_pmy[3]],
+          muted: effectiveMutes(deck),
+          volume_pmy: state.volume_pmy,
+          playing: state.playing,
+        });
+        bridge.setDeckTempoPmy(deck, state.tempo_pmy);
+        bridge.setDeckKeylock(deck, state.keylock);
+        bridge.setDeckFilterPmy(deck, state.filter_pmy);
+        if (state.loop.enabled) bridge.setDeckLoop(deck, true, state.loop.start_frame, state.loop.end_frame);
+      });
+      return;
+    }
+    const aligned = alignedStems(stems);
+    if (!aligned) return;
     bridge.loadStems(deck, aligned[0], aligned[1], aligned[2], aligned[3], {
       gain_pmy: [state.gain_pmy[0], state.gain_pmy[1], state.gain_pmy[2], state.gain_pmy[3]],
       muted: effectiveMutes(deck),
@@ -558,16 +601,31 @@ export function mountRemixShell(root: HTMLElement): {
     }
   };
 
-  const refreshProcessed = (deck: DeckIndex, sampleRate: number) => {
-    const aligned = alignedStems(controller.decks[deck].stems);
+  const refreshProcessed = async (deck: DeckIndex, sampleRate: number) => {
+    const stems = controller.decks[deck].stems;
+    const frames = stemFrameCount(stems);
     controller.decks[deck].lastSampleRate = sampleRate;
-    if (!aligned) {
+    if (frames === 0) {
       controller.decks[deck].lastProcessedMono = null;
       return;
     }
-    const [drums, bass, vocal, other] = aligned;
-    const sum = new Float32Array(drums.length);
-    for (let i = 0; i < sum.length; i++) sum[i] = drums[i] + bass[i] + vocal[i] + other[i];
+    const sum = new Float32Array(frames);
+    const step = frames > 200_000 ? 262_144 : frames;
+    const drums = stems[0];
+    const bass = stems[1];
+    const vocal = stems[2];
+    const other = stems[3];
+    for (let i = 0; i < frames; i += step) {
+      const end = Math.min(frames, i + step);
+      for (let j = i; j < end; j++) {
+        sum[j] =
+          (drums && j < drums.length ? drums[j] : 0) +
+          (bass && j < bass.length ? bass[j] : 0) +
+          (vocal && j < vocal.length ? vocal[j] : 0) +
+          (other && j < other.length ? other[j] : 0);
+      }
+      if (end < frames) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
     controller.decks[deck].lastProcessedMono = sum;
   };
 
@@ -582,7 +640,7 @@ export function mountRemixShell(root: HTMLElement): {
       }
       controller.decks[deck].stems[stem] = pcm;
       controller.decks[deck].stemNames[stem] = file.name;
-      refreshProcessed(deck, sampleRate);
+      await refreshProcessed(deck, sampleRate);
       paintStem(deck, stem);
       pushDeckAudio(deck);
       const frames = stemFrameCount(controller.decks[deck].stems);
@@ -643,18 +701,27 @@ export function mountRemixShell(root: HTMLElement): {
         setStatus("That file decoded to silence.");
         return;
       }
+      document.documentElement.dataset.workerStart = String(performance.now());
       const result = await splitFullSong(pcm, sampleRate);
+      document.documentElement.dataset.workerEnd = String(performance.now());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const card = root.querySelector<HTMLElement>(`[data-song-card="${deck}"]`);
       if (result.ok && quartetHasAudio(result)) {
         applyQuartet(deck, result, file.name);
+        if (card) card.dataset.splitMs = String(Math.round(result.splitMs));
         setSplitNote(deck, null);
         setStatus(`${SONG_LABELS[deck]} split into Drums, Bass, Vocals, and Music.`);
       } else {
-        applyQuartet(deck, musicOnlyQuartet(pcm), file.name);
-        const note = "Auto-split needs the updated engine";
-        setSplitNote(deck, `${note}. Add the 4 parts, or wait for built-in splitting.`);
-        setStatus(`${note}. ${file.name} loaded on Music.`);
+        const recovered = result.ok ? null : result.pcm;
+        if (recovered && recovered.length > 0) {
+          applyQuartet(deck, musicOnlyQuartet(recovered), file.name);
+          setStatus(`Could not split that song. ${file.name} loaded on Music.`);
+        } else {
+          setStatus("Could not split that song.");
+        }
+        setSplitNote(deck, "Could not split that song.");
       }
-      refreshProcessed(deck, sampleRate);
+      await refreshProcessed(deck, sampleRate);
       paintDeck(deck);
       pushDeckAudio(deck);
       updateNostrPreview(deck, true);
@@ -1482,6 +1549,7 @@ export function mountRemixShell(root: HTMLElement): {
 
   const captureHost = window as unknown as { __forgeCapture?: () => ReturnType<RemixAudioBridge["captureMix"]> };
   captureHost.__forgeCapture = () => bridge.captureMix();
+  warmStemSplit();
 
   for (let deck = 0; deck < 4; deck++) paintDeck(deck as DeckIndex);
   paintCrossfader();

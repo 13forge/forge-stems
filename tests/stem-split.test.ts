@@ -1,29 +1,26 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { initSync, stem_split_four } from "@wasm/forge_audio_wasm_v3.js";
 import { RemixController } from "../src/state/controller.js";
 import {
   hasStemSplitFour,
   musicOnlyQuartet,
   quartetHasAudio,
   unpackStemSplitFour,
-  type StemSplitFour,
 } from "../src/audio/stem-split.js";
-
-function mockSplit(signal: Float32Array): Float32Array {
-  const n = signal.length;
-  const packed = new Float32Array(n * 4);
-  for (let i = 0; i < n; i++) {
-    packed[i] = signal[i];
-    packed[n + i] = signal[i] + 1;
-    packed[n * 2 + i] = signal[i] + 2;
-    packed[n * 3 + i] = signal[i] + 3;
-  }
-  return packed;
-}
 
 describe("stem_split_four unpack", () => {
   it("copies the four parts and zeroes the packed buffer", () => {
     const pcm = new Float32Array([1, 2, 3, 4]);
-    const packed = mockSplit(pcm);
+    const n = pcm.length;
+    const packed = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      packed[i] = pcm[i];
+      packed[n + i] = pcm[i] + 1;
+      packed[n * 2 + i] = pcm[i] + 2;
+      packed[n * 3 + i] = pcm[i] + 3;
+    }
     const parts = unpackStemSplitFour(packed);
     expect(Array.from(packed)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(Array.from(parts.drums)).toEqual([1, 2, 3, 4]);
@@ -42,12 +39,17 @@ describe("stem_split_four unpack", () => {
     expect(parts.music.length).toBe(0);
   });
 
-  it("feature-detects stem_split_four and a mocked split fills all 4 stems", () => {
+  it("runs the vendored stem_split_four and zeroes the packed buffer", () => {
     expect(hasStemSplitFour({})).toBe(false);
-    expect(hasStemSplitFour({ stem_split_four: () => new Float32Array() })).toBe(true);
-    const pcm = new Float32Array([0.25, 0.5]);
-    const split: StemSplitFour = (signal) => mockSplit(signal);
-    const packed = split(pcm, 48_000);
+    const bytes = readFileSync(
+      fileURLToPath(new URL("../vendor/forge-audio-wasm-v3/forge_audio_wasm_v3_bg.wasm", import.meta.url)),
+    );
+    initSync({ module: bytes });
+    expect(typeof stem_split_four).toBe("function");
+    const pcm = new Float32Array(4_800);
+    for (let i = 0; i < pcm.length; i++) pcm[i] = Math.sin(i / 8) * 0.25;
+    const packed = stem_split_four(pcm, 48_000);
+    expect(packed.length).toBe(pcm.length * 4);
     const parts = unpackStemSplitFour(packed);
     expect(packed.every((sample) => sample === 0)).toBe(true);
     const ctrl = new RemixController();
@@ -55,9 +57,9 @@ describe("stem_split_four unpack", () => {
     ctrl.decks[0].stems[1] = parts.bass;
     ctrl.decks[0].stems[2] = parts.voice;
     ctrl.decks[0].stems[3] = parts.music;
-    expect(ctrl.decks[0].stems.map((stem) => stem?.length)).toEqual([2, 2, 2, 2]);
-    expect(ctrl.decks[0].stems[0]?.[0]).toBeCloseTo(0.25);
-    expect(ctrl.decks[0].stems[3]?.[1]).toBeCloseTo(3.5);
+    expect(ctrl.decks[0].stems.every((stem) => stem && stem.length === pcm.length)).toBe(true);
+    const energy = (buf: Float32Array) => buf.reduce((sum, sample) => sum + sample * sample, 0);
+    expect(energy(parts.drums) + energy(parts.bass) + energy(parts.voice) + energy(parts.music)).toBeGreaterThan(0);
   });
 
   it("falls back to Music only when the export is missing", () => {

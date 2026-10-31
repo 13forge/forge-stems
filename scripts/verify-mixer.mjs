@@ -61,6 +61,36 @@ function resolveChromePath() {
 
 const chromePath = resolveChromePath();
 
+/** 60 Hz sine + 1 kHz vibrato (±150 Hz at 5 Hz) + a click train. Mono 16-bit WAV. */
+function splitMixWav(seconds = 3, sampleRate = 48_000) {
+  const frames = Math.floor(sampleRate * seconds);
+  const dataBytes = frames * 2;
+  const buf = Buffer.alloc(44 + dataBytes);
+  buf.write("RIFF", 0);
+  buf.writeUInt32LE(36 + dataBytes, 4);
+  buf.write("WAVE", 8);
+  buf.write("fmt ", 12);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(sampleRate, 24);
+  buf.writeUInt32LE(sampleRate * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write("data", 36);
+  buf.writeUInt32LE(dataBytes, 40);
+  const clickEvery = 512;
+  for (let i = 0; i < frames; i++) {
+    const t = i / sampleRate;
+    const bass = Math.sin(2 * Math.PI * 60 * t) * 0.35;
+    const voice = Math.sin(2 * Math.PI * 1000 * t - 30 * Math.cos(2 * Math.PI * 5 * t)) * 0.25;
+    const click = i % clickEvery < 6 ? 0.85 : 0;
+    const sample = Math.max(-1, Math.min(1, bass + voice + click));
+    buf.writeInt16LE(Math.round(sample * 32767), 44 + i * 2);
+  }
+  return buf;
+}
+
 function toneWav(freq, seconds = 1, sampleRate = 48_000) {
   const frames = Math.floor(sampleRate * seconds);
   const dataBytes = frames * 2;
@@ -335,12 +365,15 @@ try {
     return (s1 * s1 + s2 * s2 - coeff * s1 * s2) / n;
   };
 
-  await page.waitForFunction(() => {
-    const sample = window.__forgeCapture?.();
-    return Boolean(sample && sample.rms > 0.001);
-  });
+  await page.waitForFunction(
+    () => {
+      const sample = window.__forgeCapture?.();
+      return Boolean(sample && sample.rms > 0.05);
+    },
+    { timeout: 8_000 },
+  );
   const allOn = await capture();
-  if (!allOn || !(allOn.rms > 0.001)) throw new Error(`four stems silent: ${allOn?.rms}`);
+  if (!allOn || !(allOn.rms > 0.05)) throw new Error(`four stems silent: ${allOn?.rms}`);
 
   for (let stem = 0; stem < 4; stem++) {
     await page.click(`[data-action="stem-mute"][data-deck="2"][data-stem="${stem}"]`);
@@ -435,6 +468,13 @@ try {
   shots.push(resolve(shotDir, "loop-active-1280.png"));
   await page.screenshot({ path: shots.at(-1), fullPage: true });
 
+  if ((await page.$eval('[data-action="repeat-toggle"][data-deck="2"]', (el) => el.getAttribute("aria-pressed"))) === "true") {
+    await page.click('[data-action="repeat-toggle"][data-deck="2"]');
+  }
+  await loadNamed(2, 0, 220, 8, "pace-8s.wav");
+  if ((await page.$eval('.deck-play[data-deck="2"]', (el) => el.getAttribute("aria-pressed"))) !== "true") {
+    await page.click('.deck-play[data-deck="2"]');
+  }
   const rateOf = async () => {
     const a = await readPos();
     await new Promise((r) => setTimeout(r, 400));
@@ -484,36 +524,210 @@ try {
   if (!buildup || buildup.nan || buildup.peak > 1.001) throw new Error("build-up invalid");
   if (!(Math.abs(buildup.rms - dry.rms) > 0.002)) throw new Error(`build-up did not change RMS ${dry.rms} -> ${buildup.rms}`);
 
-  const dropBytes = toneWav(330, 1);
-  await page.evaluate((bytes) => {
-    const file = new File([new Uint8Array(bytes)], "dropped-song.wav", { type: "audio/wav" });
+  if ((await page.$eval("#btn-play-all", (el) => el.getAttribute("aria-pressed"))) === "true") {
+    await page.click("#btn-play-all");
+  }
+
+  const splitBytes = [...splitMixWav(3)];
+  await page.evaluate(async (bytes) => {
+    const raw = new Uint8Array(bytes.length);
+    const step = 16_384;
+    for (let i = 0; i < bytes.length; i += step) {
+      raw.set(bytes.subarray ? bytes.subarray(i, i + step) : bytes.slice(i, i + step), i);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    window.__splitFile = new File([raw], "split-mix.wav", { type: "audio/wav" });
+  }, splitBytes);
+  await page.evaluate(() => {
+    window.__sawSplitPill = false;
+    window.__longTasks = [];
+    window.__splitWatch = setInterval(() => {
+      const badge = document.querySelector('[data-split-badge][data-deck="3"]');
+      if (badge && !badge.hidden && (badge.textContent ?? "").includes("Splitting 4 stems")) {
+        window.__sawSplitPill = true;
+      }
+    }, 5);
+    try {
+      const obs = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          window.__longTasks.push({ duration: entry.duration, start: entry.startTime });
+        }
+      });
+      obs.observe({ type: "longtask", buffered: false });
+      window.__longObs = obs;
+    } catch (err) {
+      window.__longTasks = null;
+      window.__longTaskError = String(err);
+    }
+  });
+  await page.evaluate(() => {
     const transfer = new DataTransfer();
-    transfer.items.add(file);
+    transfer.items.add(window.__splitFile);
     const zone = document.querySelector('.song-drop[data-deck="3"]');
     zone.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     zone.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
-  }, dropBytes);
+  });
   await page.waitForFunction(() => document.querySelector('.song-drop[data-deck="3"]')?.classList.contains("is-hot"));
   const dropText = await page.$eval('.song-drop[data-deck="3"] .drop-hint', (el) => el.textContent);
   if (!dropText?.includes("Drop to load")) throw new Error(`drop hint ${dropText}`);
   shots.push(resolve(shotDir, "drag-over-1280.png"));
   await page.screenshot({ path: shots.at(-1), fullPage: true });
-  await page.evaluate((bytes) => {
-    const file = new File([new Uint8Array(bytes)], "dropped-song.wav", { type: "audio/wav" });
+  await page.evaluate(() => {
     const transfer = new DataTransfer();
-    transfer.items.add(file);
+    transfer.items.add(window.__splitFile);
     const zone = document.querySelector('.song-drop[data-deck="3"]');
     zone.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
-  }, dropBytes);
-  await page.waitForFunction(() => {
-    const text = document.querySelector("#status-msg")?.textContent ?? "";
-    return text.includes("Auto-split needs the updated engine") || text.includes("split into");
   });
+  await page.waitForFunction(
+    () => (document.querySelector("#status-msg")?.textContent ?? "").includes("split into"),
+    { timeout: 60_000 },
+  );
+  const splitWatch = await page.evaluate(() => {
+    clearInterval(window.__splitWatch);
+    window.__longObs?.disconnect();
+    const names = [...document.querySelectorAll('[data-song-card="3"] .stem-file-name')].map((el) => el.textContent);
+    return {
+      sawPill: window.__sawSplitPill === true,
+      longTasks: window.__longTasks,
+      longTaskError: window.__longTaskError ?? null,
+      names,
+      splitMs: Number(document.querySelector("[data-song-card='3']")?.dataset.splitMs || 0),
+    };
+  });
+  if (!splitWatch.sawPill) throw new Error("Splitting 4 stems pill was not shown");
+  if (splitWatch.longTasks === null) throw new Error(`longtask observer failed: ${splitWatch.longTaskError}`);
+  const workerWindow = await page.evaluate(() => ({
+    start: Number(document.documentElement.dataset.workerStart || 0),
+    end: Number(document.documentElement.dataset.workerEnd || 0),
+  }));
+  const duringSplit = (splitWatch.longTasks ?? []).filter(
+    (task) => task.start >= workerWindow.start && task.start <= workerWindow.end,
+  );
+  const longTaskMax = duringSplit.reduce((max, task) => Math.max(max, task.duration), 0);
+  if (longTaskMax >= 50) throw new Error(`main thread blocked during split (${longTaskMax.toFixed(1)} ms)`);
+  if (splitWatch.names.some((name) => !name || name.includes("Drop a part"))) {
+    throw new Error(`stem slots not filled: ${splitWatch.names.join(" | ")}`);
+  }
+
+  await page.evaluate(() => document.querySelector("[data-song-card='3']")?.scrollIntoView({ block: "start" }));
+  shots.push(resolve(shotDir, "auto-split-1280.png"));
+  await page.screenshot({ path: shots.at(-1) });
+
   await page.click('.deck-play[data-deck="3"]');
   await page.waitForFunction(() => {
     const sample = window.__forgeCapture?.();
-    return Boolean(sample && sample.rms > 0.001);
+    return Boolean(sample && sample.rms > 0.02);
   });
+  const splitAll = await capture();
+  if (!splitAll || splitAll.nan || splitAll.peak > 1.001) throw new Error("split mix capture invalid");
+  const hz60 = goertzel(splitAll.time, 60, splitAll.rate);
+  await page.click('[data-action="stem-mute"][data-deck="3"][data-stem="1"]');
+  await new Promise((r) => setTimeout(r, 220));
+  const bassMuted = await capture();
+  const hz60Muted = goertzel(bassMuted.time, 60, bassMuted.rate);
+  if (!(hz60Muted < hz60 * 0.35)) throw new Error(`mute bass left 60 Hz ${hz60Muted} of ${hz60}`);
+  await page.click('[data-action="stem-mute"][data-deck="3"][data-stem="1"]');
+
+  const splitSolos = [];
+  for (let stem = 0; stem < 4; stem++) {
+    await page.click(`[data-action="stem-solo"][data-deck="3"][data-stem="${stem}"]`);
+    await new Promise((r) => setTimeout(r, 220));
+    const sample = await capture();
+    if (!sample || sample.nan || sample.peak > 1.001) throw new Error(`split solo ${stem} invalid`);
+    if (!(sample.rms > 0.012)) throw new Error(`stem ${stem} silent after split (rms ${sample.rms})`);
+    if (!(Math.abs(sample.rms - splitAll.rms) > 0.004)) {
+      throw new Error(`Only This on stem ${stem} did not change the mix (${sample.rms} vs ${splitAll.rms})`);
+    }
+    splitSolos.push(sample.rms);
+    await page.click(`[data-action="stem-solo"][data-deck="3"][data-stem="${stem}"]`);
+  }
+
+  await page.evaluate(async () => {
+    const sampleRate = 48_000;
+    const frames = sampleRate * 180;
+    const pcm = new Float32Array(frames);
+    const step = sampleRate;
+    for (let start = 0; start < frames; start += step) {
+      const end = Math.min(frames, start + step);
+      for (let i = start; i < end; i++) {
+        const t = i / sampleRate;
+        const bass = Math.sin(2 * Math.PI * 60 * t) * 0.2;
+        const click = i % 512 < 4 ? 0.4 : 0;
+        pcm[i] = bass + click;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const dataBytes = frames * 2;
+    const bytes = new Uint8Array(44 + dataBytes);
+    const view = new DataView(bytes.buffer);
+    const ascii = (offset, text) => {
+      for (let i = 0; i < text.length; i++) bytes[offset + i] = text.charCodeAt(i);
+    };
+    ascii(0, "RIFF");
+    view.setUint32(4, 36 + dataBytes, true);
+    ascii(8, "WAVE");
+    ascii(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    ascii(36, "data");
+    view.setUint32(40, dataBytes, true);
+    for (let i = 0; i < frames; i++) {
+      const sample = Math.max(-1, Math.min(1, pcm[i]));
+      view.setInt16(44 + i * 2, Math.round(sample * 32767), true);
+    }
+    window.__longFile = new File([bytes], "three-minutes.wav", { type: "audio/wav" });
+    window.__longTasks = [];
+    const obs = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        window.__longTasks.push({ duration: entry.duration, start: entry.startTime });
+      }
+    });
+    obs.observe({ type: "longtask", buffered: false });
+    window.__longObs = obs;
+  });
+  const longStarted = Date.now();
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(window.__longFile);
+    const zone = document.querySelector('.song-drop[data-deck="3"]');
+    zone.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await page.waitForFunction(
+    (previous) => {
+      const card = document.querySelector("[data-song-card='3']");
+      const badge = document.querySelector('[data-split-badge][data-deck="3"]');
+      const ms = Number(card?.dataset.splitMs || 0);
+      return badge?.hidden === true && ms > previous;
+    },
+    { timeout: 180_000 },
+    splitWatch.splitMs,
+  );
+  const threeMinute = await page.evaluate(() => {
+    window.__longObs?.disconnect();
+    return {
+      wallMs: 0,
+      splitMs: Number(document.querySelector("[data-song-card='3']")?.dataset.splitMs || 0),
+      longTasks: window.__longTasks,
+      workerStart: Number(document.documentElement.dataset.workerStart || 0),
+      workerEnd: Number(document.documentElement.dataset.workerEnd || 0),
+    };
+  });
+  threeMinute.wallMs = Date.now() - longStarted;
+  const threeMinuteDuring = (threeMinute.longTasks ?? []).filter(
+    (task) => task.start >= threeMinute.workerStart && task.start <= threeMinute.workerEnd,
+  );
+  const threeMinuteLongMax = threeMinuteDuring.reduce((max, task) => Math.max(max, task.duration), 0);
+  if (threeMinuteLongMax >= 50) {
+    const offenders = threeMinuteDuring.map((task) => `${task.duration.toFixed(0)}@${task.start.toFixed(0)}`).join(", ");
+    throw new Error(
+      `3-minute split blocked the main thread (${threeMinuteLongMax.toFixed(1)} ms) window ${threeMinute.workerStart.toFixed(0)}-${threeMinute.workerEnd.toFixed(0)} [${offenders}]`,
+    );
+  }
 
   await page.click('[data-action="toggle-pro"][data-deck="0"]');
   shots.push(resolve(shotDir, "more-controls-1280.png"));
@@ -530,6 +744,19 @@ try {
     solos: solos.map((row) => row.rms),
     gains,
     fxDeltas,
+    split: {
+      sawPill: splitWatch.sawPill,
+      splitMs: splitWatch.splitMs,
+      longTaskMax,
+      solos: splitSolos,
+      hz60,
+      hz60Muted,
+    },
+    threeMinute: {
+      wallMs: threeMinute.wallMs,
+      splitMs: threeMinute.splitMs,
+      longTaskMax: threeMinuteLongMax,
+    },
     shots,
     logs: logs.slice(-20),
   };

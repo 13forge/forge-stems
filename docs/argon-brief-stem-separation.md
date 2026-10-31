@@ -1,6 +1,6 @@
 # Stem separation contract for forge-audio-wasm-v3
 
-The browser mixer does not separate a mixed song yet. `vendor/forge-audio-wasm-v3` exports `stem_split` (two buffers, harmonic and percussive) and does not export `stem_split_four`. Until that export is in the vendored package, the UI says "Auto-split needs the updated engine" and puts the file on Music.
+`stem_split_four` is now part of the vendored package. This note is the contract that export follows. A failed split says "Could not split that song" and does not pretend the engine is missing.
 
 ## 1. Export this exact function
 
@@ -35,7 +35,7 @@ The model expects 44.1 kHz. Resample inside the export, then resample the four s
 1. The crate owns resample, chunking, overlap-add, the model run, and the packed `Float32Array`.
 2. The worker checks `typeof wasm.stem_split_four === "function"`, calls it, unpacks with `.slice`, then `packed.fill(0)`.
 3. The page shows "Splitting 4 stems…" while the worker runs and then calls `load_stems`.
-4. If the function is missing or returns empty, the page does not freeze. It loads the mono mix on Music and shows "Auto-split needs the updated engine".
+4. If the call throws or returns empty, the page does not freeze. It says "Could not split that song" and, when the audio is still available, loads that mix on Music.
 
 ## 4. Acceptance checks
 

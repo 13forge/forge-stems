@@ -31,7 +31,9 @@ The mixer engine is the WebAssembly package in `vendor/forge-audio-wasm-v3/` (th
 - wasm-pack 0.13.1 (`--target web`, panic=abort, debug info off)
 - wasm-bindgen 0.2.127
 - wasm-opt 117 (`--dce --remove-unused-module-elements --strip-debug --strip-producers`)
-- `vendor/forge-audio-wasm-v3/forge_audio_wasm_v3_bg.wasm`: 620,487 bytes
-- sha256: `ac7052d2f0e5a22f0a96760a200e7618634609473b64aa22b873c4399a91c6f1`
+- `vendor/forge-audio-wasm-v3/forge_audio_wasm_v3_bg.wasm`: 627,908 bytes
+- sha256: `195ef28309f2133bea0532db97dd5c6d96b42b7ce3469abb3ee0100a3f9d45c0`
+
+This build exports `stem_split_four` (mono PCM in, four packed mono stems out).
 
 Release build of the vendored audio module. Symbols are stripped, and unused C exports that the JS glue does not call were removed (eight support-crate symbols plus the abort and instance-terminated handlers). The glue exposes `Engine.read_telemetry_into`, and `InitOutput` matches the exports that remain. Build-time path remapping, plus equal-length rewrites of any panic paths that survived it, keeps machine paths and toolchain locations out of the `.wasm`. The Moonforge sky shader is in this repo at `src/ui/shaders/launcher_sky.wgsl`. `src/ui/moonforge-sky.ts` mounts it behind `#app` when `navigator.gpu` can create a device, and stays inert otherwise. `vite.config.ts` keeps the `@wasm` alias on `vendor/forge-audio-wasm-v3` and does not allow the dev server to read a parent directory.
