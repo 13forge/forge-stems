@@ -1,0 +1,23 @@
+{
+  "name": "forge-remix-shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "test:bridge": "vitest run tests/bridge.test.ts",
+    "test:nostr": "vitest run tests/nostr.test.ts",
+    "test": "vitest run",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "happy-dom": "^21.0.4",
+    "puppeteer-core": "^25.16.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0",
+    "vitest": "^4.0.0"
+  }
+}
