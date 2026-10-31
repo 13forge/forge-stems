@@ -1,0 +1,250 @@
+/* Haunted Moonforge // 13forge canonical palette. Tokens first; layout keys off the data-zone / data-* hooks in src/ui/app.ts. */
+:root {
+  /* 13forge canonical ground and engine floor */
+  --bg-abyss: #050812;            /* Portfolio ground */
+  --bg-engine-floor: #0a0705;     /* Engine warm obsidian floor (BLACK_FLOOR_RGB) */
+  --bg-obsidian: #090c16;
+  --bg-anvil: #101524;
+  --bg-anvil-hover: #161d31;
+  --bg-crypt-drawer: #070910;
+
+  /* 13forge moonlit typography */
+  --text-moonlight: #E6F1FF;      /* Portfolio title token */
+  --text-silver: #cbd5e1;
+  --text-ghost: #64748b;
+
+  /* 13forge and Haunted Moonforge accents */
+  --accent-moon-cyan: #1AE0FF;    /* Portfolio primary cyan accent */
+  --accent-ectoplasm: #2dd4bf;
+  --accent-ember: #f97316;        /* "Only This" (solo) and stem boost above 100% */
+  --accent-blood-moon: #f43f5e;   /* Mute and warning states */
+  --accent-spectral-violet: #a855f7;
+
+  /* Borders and spectral glows */
+  --border-iron: rgba(230, 241, 255, 0.12);
+  --border-moonlit: rgba(26, 224, 255, 0.42);
+  --border-ember: rgba(249, 115, 22, 0.55);
+  --shadow-anvil: 0 10px 30px -10px rgba(0, 0, 0, 0.88),
+                  inset 0 1px 0 0 rgba(230, 241, 255, 0.05);
+  --glow-moon: 0 0 16px rgba(26, 224, 255, 0.24);
+  --glow-ember: 0 0 16px rgba(249, 115, 22, 0.28);
+
+  --radius-card: 12px;
+  --radius-pill: 9999px;
+  --radius-pad: 8px;
+  --gap-macro: 14px;
+  --gap-cluster: 10px;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-abyss);
+  background-image:
+    radial-gradient(circle at 50% -10%, rgba(26, 224, 255, 0.09), transparent 55%),
+    radial-gradient(circle at 85% 105%, rgba(249, 115, 22, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-abyss) 0%, var(--bg-engine-floor) 100%);
+  color: var(--text-moonlight);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+.shell-root {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--gap-macro);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-macro);
+}
+
+[data-zone="top-bar"],
+[data-zone="blend-bar"],
+[data-zone="fx-drawer"] {
+  background: var(--bg-obsidian);
+  border: 1px solid var(--border-iron);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-anvil);
+  padding: 12px 16px;
+}
+
+[data-zone="top-bar"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-cluster);
+  flex-wrap: wrap;
+}
+
+[data-zone="blend-bar"] {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-cluster);
+  flex-wrap: wrap;
+}
+
+.blend-track {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-cluster);
+  flex: 1 1 320px;
+}
+
+[data-zone="songs"] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-macro);
+}
+
+@media (max-width: 900px) {
+  [data-zone="songs"] { grid-template-columns: 1fr; }
+}
+
+[data-song-card] {
+  background: var(--bg-anvil);
+  border: 1px solid var(--border-iron);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: var(--shadow-anvil);
+}
+
+[data-song-card][data-playing="true"] {
+  border-color: var(--border-moonlit);
+  box-shadow: var(--shadow-anvil), var(--glow-moon);
+}
+
+.song-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-cluster);
+}
+
+.stems-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gap-cluster);
+}
+
+[data-stem-strip] {
+  background: var(--bg-obsidian);
+  border: 1px solid var(--border-iron);
+  border-radius: var(--radius-pad);
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: opacity 180ms ease, filter 180ms ease, border-color 150ms ease;
+}
+
+[data-stem-strip][data-dimmed="true"] {
+  opacity: 0.35;
+  filter: saturate(0.25);
+}
+
+[data-stem-strip][data-soloed="true"] {
+  border-color: var(--border-ember);
+  box-shadow: var(--glow-ember);
+}
+
+[data-tier2="song-pro"],
+[data-tier2="fx-body"] {
+  margin-top: 6px;
+  padding: 12px;
+  background: var(--bg-crypt-drawer);
+  border: 1px dashed rgba(230, 241, 255, 0.16);
+  border-radius: var(--radius-pad);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+[data-tier2="fx-body"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pro-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label-primary {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-moonlight);
+}
+
+.label-secondary-metric {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-ghost);
+}
+
+input[type="range"][data-slider] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: rgba(230, 241, 255, 0.16);
+  border-radius: var(--radius-pill);
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"][data-slider]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-moonlight);
+  border: 2px solid var(--accent-moon-cyan);
+  box-shadow: 0 0 10px rgba(26, 224, 255, 0.55);
+}
+
+button {
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-silver);
+  background: var(--bg-anvil);
+  border: 1px solid var(--border-iron);
+  border-radius: var(--radius-pill);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--bg-anvil-hover);
+  color: var(--text-moonlight);
+}
+
+button.primary {
+  border-color: var(--border-moonlit);
+  color: var(--accent-moon-cyan);
+}
+
+button[data-active="true"][data-action="stem-solo"],
+button[aria-pressed="true"][data-action="stem-solo"] {
+  background: rgba(249, 115, 22, 0.18);
+  border-color: var(--accent-ember);
+  color: #ffedd5;
+}
+
+button[data-active="true"][data-action="stem-mute"],
+button[aria-pressed="true"][data-action="stem-mute"] {
+  background: rgba(244, 63, 94, 0.2);
+  border-color: var(--accent-blood-moon);
+  color: #ffe4e6;
+}
